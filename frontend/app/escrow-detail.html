@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Job — Tetscrow</title>
+<link rel="stylesheet" href="../css/landing.css" />
+<link rel="stylesheet" href="../css/app-home.css" />
+<link rel="stylesheet" href="../css/app-pages.css" />
+</head>
+<body>
+<div class="wrap page">
+  <header id="app-header"></header>
+  <main id="gate"></main>
+  <main id="content" class="hidden">
+    <section class="job-head" id="job-head"></section>
+    <div class="job-grid">
+      <section class="panel chat" id="chat"></section>
+      <div>
+        <section class="panel" id="desc-panel" style="margin-bottom:30px"></section>
+        <section class="panel" id="ms-panel"></section>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../js/hawk3d.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.2/ethers.umd.min.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/site-config.js"></script>
+<script src="../js/site.js"></script>
+<script src="../js/wallet.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/app-shell.js"></script>
+<script>
+  const { esc, fmt, ICON } = App;
+  const jobId = Number(new URLSearchParams(location.search).get("id"));
+  const MSTAT = window.MILESTONE_STATUS;     // Funded, Delivered, Released, Disputed, Refunded, Resolved
+  const GRACE_DAYS = 30;
+  const $ = (id) => document.getElementById(id);
+  let job = null, chains = {}, review = 604800, me = "", role = "observer";
+  let open = new Set(), tab = "all", descOpen = false, pendingFile = null, pollTimer = null, lastMsgSig = "";
+
+  // ------------------------------------------------------------ state helpers
+  function view(m) {
+    // one object per milestone: status label, flags, with the chain overriding the database
+    const ch = chains[m.id], c0 = ch && ch.milestones[0];
+    let st = ch ? (ch.status === 2 && c0.status === 4 ? 4 : c0.status) : null;
+    let label;
+    if (ch) {
+      if (ch.status === 2 && c0.status !== 4) label = "Cancelled";
+      else label = { 0: "Locked", 1: "Delivered", 2: "Released", 3: "Disputed", 4: "Refunded", 5: "Resolved" }[c0.status];
+    } else label = { funded: "Locked", delivered: "Delivered", released: "Released", disputed: "Disputed", resolved: "Resolved", cancelled: "Cancelled", created: "Pending" }[m.status] || m.status;
+    const s = ch ? c0.status : { funded: 0, delivered: 1, released: 2, disputed: 3, resolved: 5 }[m.status];
+    return {
+      label, s, ch, c0,
+      active: ch ? ch.status === 0 : true,
+      done: s === 2 || s === 5,
+      paid: s === 2,
+      deadline: m.deadline || (ch ? new Date(ch.deadline * 1000).toISOString().slice(0, 10) : null),
+    };
+  }
+  const amt = (m) => Number(m.amount);
+
+  // ------------------------------------------------------------ loading
+  async function load(keepOpen) {
+    try {
+      job = await TetscrowApi.getJob(jobId);
+      me = (Tetscrow.getAddress() || localStorage.getItem("tetscrow_wallet") || "").toLowerCase();
+      role = me === job.sender_address ? "buyer" : me === job.receiver_address ? "worker" : "observer";
+      const entries = await Promise.all(job.milestones.map(async (m) => [m.id, m.onchain_id != null ? await Tetscrow.getOnchainEscrow(m.onchain_id).catch(() => null) : null]));
+      chains = Object.fromEntries(entries);
+      try { review = await Tetscrow.reviewPeriodSeconds(); } catch { /* keep default */ }
+      if (!keepOpen && open.size === 0 && job.milestones.length) open.add(job.milestones[0].id);
+      document.title = job.title + " — Tetscrow";
+      render();
+      loadMessages(true);
+    } catch (err) {
+      $("job-head").innerHTML = '<div class="empty" style="grid-column:1/-1;color:#c62828">' + esc(err.status === 404 ? "Job not found." : err.message) + "</div>";
+    }
+  }
+  async function after(label) { // after any on-chain action: persist the new status, then redraw
+    try { await TetscrowApi.syncJob(jobId); } catch { /* the page reads the chain anyway */ }
+    App.toast(label); await load(true); App.paintBalance();
+  }
+
+  // ------------------------------------------------------------ header + description
+  function renderHead() {
+    const ms = job.milestones, total = ms.reduce((a, m) => a + amt(m), 0);
+    let paid = 0, locked = 0;
+    ms.forEach((m) => { const v = view(m); if (v.paid) paid += amt(m); else if (v.s === 0 || v.s === 1 || v.s === 3) locked += amt(m); });
+    const pct = (x) => (total ? Math.round((x / total) * 100) : 0);
+    const other = role === "buyer" ? job.receiver : job.sender;
+    $("job-head").innerHTML =
+      '<div class="job-title-block"><span class="usdc-ico" aria-hidden="true">$</span><b>' + esc(job.title) + "</b></div>" +
+      '<div class="job-amt"><small>Amount in Escrow</small><b>' + esc(fmt(total)) + "</b><small>USDC</small></div>" +
+      '<div class="job-parties"><div class="party"><b>' + esc(job.sender.display_name) + "</b>" + App.addrChip(job.sender_address) + '</div><span class="arrow-btn">' + ICON.send + '</span><div class="party"><b>' + esc(job.receiver.display_name) + "</b>" + App.addrChip(job.receiver_address) + "</div></div>" +
+      '<div class="job-totals"><div><i></i><span>Amount in Escrow</span></div><div><b>' + esc(fmt(locked)) + " USDC <em>" + pct(locked) + '%</em></b></div>' +
+      '<div><i style="background:#9aa3ad"></i><span>Total Paid</span></div><div><b>' + esc(fmt(paid)) + " USDC <em>" + pct(paid) + "%</em></b></div></div>";
+    return other;
+  }
+  function renderDesc() {
+    const text = job.description || "No description provided.";
+    const long = text.length > 140;
+    $("desc-panel").innerHTML = '<h2>Job Description</h2><div class="desc ' + (long && !descOpen ? "clamp" : "") + '">' + esc(text) + "</div>" +
+      (long ? '<button class="link-btn" id="desc-toggle" type="button">' + (descOpen ? "Less" : "More") + "</button>" : "") +
+      (job.terms_uri ? '<p class="note-line" style="text-align:left">Terms: <a href="' + esc(job.terms_uri) + '" target="_blank" rel="noopener" style="text-decoration:underline">' + esc(job.terms_uri) + "</a></p>" : "");
+    const t = $("desc-toggle"); if (t) t.onclick = () => { descOpen = !descOpen; renderDesc(); };
+  }
+
+  // ------------------------------------------------------------ milestones
+  function milestoneRow(m) {
+    const v = view(m), isOpen = open.has(m.id);
+    const icon = v.done ? ICON.check : v.s === 3 ? ICON.alert : ICON.clock;
+    const ext = m.extension_requested;
+    let deadlineBox = '<div class="dl-box"><div><small>Deadline</small><b>' + esc(App.mdy(v.deadline)) + "</b></div>";
+    if (ext) deadlineBox += '<span class="ext">Extension Requested: ' + esc(App.mdy(ext)) + "</span>";
+    if (v.active && v.s === 0) {
+      if (role === "worker" && m.accepted && !ext) deadlineBox += '<button class="btn-pill sm" data-a="req-ext" data-id="' + m.id + '" type="button">Request Extension</button>';
+      if (role === "buyer" && ext) deadlineBox += '<button class="btn-pill sm" data-a="approve-ext" data-id="' + m.id + '" type="button">Approve</button>';
+      if (role === "buyer") deadlineBox += '<button class="btn-pill sm" data-a="update" data-id="' + m.id + '" type="button">Update</button>';
+    }
+    deadlineBox += "</div>";
+
+    const btns = [];
+    const dispBtn = '<button class="btn-pill light" data-a="dispute" data-id="' + m.id + '" type="button">Raise a Dispute</button>';
+    if (v.s === 3) {
+      btns.push(m.dispute_id ? '<a class="btn-pill light" href="disputes.html?id=' + m.dispute_id + '">Go to Dispute</a>' : "");
+    } else if (v.active && v.s === 0) {
+      const mine = role === "buyer" ? v.ch && v.ch.payerCancelIntent : v.ch && v.ch.payeeCancelIntent;
+      const theirs = role === "buyer" ? v.ch && v.ch.payeeCancelIntent : v.ch && v.ch.payerCancelIntent;
+      if (role === "worker" && !m.accepted) btns.push('<button class="btn-pill" data-a="accept" data-id="' + m.id + '" type="button">Accept</button>');
+      if (role === "worker" && m.accepted) btns.push('<button class="btn-pill" data-a="deliver" data-id="' + m.id + '" type="button">Submit for Approval</button>', dispBtn);
+      if (role === "buyer" && m.accepted) {
+        btns.push(dispBtn);
+        if (v.ch && Date.now() / 1000 > v.ch.deadline) btns.push('<button class="btn-pill light" data-a="timeout" data-id="' + m.id + '" type="button">Claim Refund</button>');
+      }
+      if (!m.accepted && role !== "observer") btns.push('<button class="btn-pill light" data-a="cancel" data-id="' + m.id + '" type="button"' + (mine ? " disabled" : "") + ">" + (theirs ? "Confirm Cancel" : mine ? "Cancel Requested" : "Cancel") + "</button>");
+    } else if (v.active && v.s === 1) {
+      if (role === "buyer") btns.push('<button class="btn-pill" data-a="release" data-id="' + m.id + '" type="button">Approve Milestone Delivery</button>', dispBtn);
+      if (role === "worker") {
+        const at = v.c0.deliveredAt + review, ready = Date.now() / 1000 >= at;
+        if (ready) btns.push('<button class="btn-pill" data-a="claim" data-id="' + m.id + '" type="button">Claim Payment</button>');
+        btns.push(dispBtn);
+      }
+    }
+    const note = v.s === 1 && role === "worker" && !(Date.now() / 1000 >= v.c0.deliveredAt + review)
+      ? '<p class="note-line">Waiting for the buyer to approve. You can claim the payment yourself on ' + esc(new Date((v.c0.deliveredAt + review) * 1000).toLocaleDateString()) + ".</p>" : "";
+    const refund = v.ch ? '<p class="note-line">On-chain refund date for this payment: ' + esc(new Date(v.ch.deadline * 1000).toLocaleDateString()) + ".</p>" : "";
+
+    return '<article class="ms-row ' + (isOpen ? "open" : "") + '" data-ms="' + m.id + '"><div class="ms-top"><h4>' + icon + "Milestone " + esc(m.no) + '</h4><span class="ms-status">' + esc(v.label) + '</span><button class="chev" data-toggle="' + m.id + '" type="button" aria-label="Show details">' + ICON.chev + "</button></div>" +
+      '<div class="ms-body"><div class="ms-desc">' + esc(m.description) + "</div>" +
+      (v.s === 1 || v.s === 2 ? '<div class="task-done">' + ICON.check.replace('class="ms-ico"', 'width="16" height="16"') + " Task Completed !</div>" : "") +
+      deadlineBox +
+      '<div class="ms-actions"><span class="btn-pill sm" style="cursor:default">' + esc(fmt(m.amount)) + ' USDC</span><span class="paid-dot ' + (v.paid ? "paid" : "") + '"><i></i>' + (v.paid ? "Paid" : v.s === 5 ? "Resolved" : "Not Paid") + "</span>" + btns.join("") + "</div>" + note + refund +
+      '<p class="status-msg" data-st="' + m.id + '" role="status"></p></div></article>';
+  }
+
+  function renderMilestones() {
+    const list = job.milestones.filter((m) => tab === "all" || view(m).done);
+    const done = job.milestones.filter((m) => view(m).done).length, n = job.milestones.length;
+    const pc = n ? Math.round((done / n) * 100) : 0;
+    $("ms-panel").innerHTML = '<div class="ms-head"><h2>Milestones</h2><div class="tabs-row"><div class="tabs"><button type="button" data-tab="all" class="' + (tab === "all" ? "on" : "") + '">All</button><button type="button" data-tab="done" class="' + (tab === "done" ? "on" : "") + '">Completed</button></div>' +
+      (role === "buyer" ? '<button class="btn-pill" id="new-ms" type="button">Create Milestone</button>' : "") + "</div></div>" +
+      (list.length ? list.map(milestoneRow).join("") : '<div class="empty muted">' + (tab === "all" ? "No milestones yet." : "No completed milestones yet.") + "</div>") +
+      '<div class="progress"><div class="bar"><i style="width:' + pc + '%"></i></div><span class="legend"><i></i>Completed Milestones ' + pc + '%</span><span class="legend p"><i></i>pending milestones ' + (100 - pc) + "%</span></div>";
+    $("ms-panel").querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; renderMilestones(); }));
+    $("ms-panel").querySelectorAll("[data-toggle]").forEach((b) => (b.onclick = () => { const id = Number(b.dataset.toggle); open.has(id) ? open.delete(id) : open.add(id); renderMilestones(); }));
+    $("ms-panel").querySelectorAll("[data-a]").forEach((b) => (b.onclick = () => act(b.dataset.a, Number(b.dataset.id), b)));
+    const nm = $("new-ms"); if (nm) nm.onclick = createMilestoneModal;
+  }
+
+  // ------------------------------------------------------------ actions
+  const find = (id) => job.milestones.find((m) => m.id === id);
+  function stMsg(id, t, kind) { const n = document.querySelector('[data-st="' + id + '"]'); if (n) { n.textContent = t; n.className = "status-msg " + (kind || ""); } }
+
+  async function act(a, id, btn) {
+    const m = find(id), v = view(m), oc = m.onchain_id;
+    try {
+      if (a === "dispute") return disputeModal(m);
+      if (a === "req-ext") return deadlineModal(m, "Request Deadline Extension", "Request", "ext");
+      if (a === "update") return deadlineModal(m, "Update Deadline", "Update", "update");
+      await App.busy(btn, "Confirm in wallet...", async () => {
+        if (a === "accept") { const sig = await Tetscrow.signAction("accept", "milestone:" + id, ""); await TetscrowApi.accept(id, sig); await after("Milestone accepted"); }
+        else if (a === "approve-ext") { const sig = await Tetscrow.signAction("extension-approve", "milestone:" + id, App.toInputDate(m.extension_requested)); await TetscrowApi.approveExtension(id, sig); await after("Deadline extension approved"); }
+        else if (a === "deliver") { await Tetscrow.markDelivered(oc, 0); await after("Submitted for approval"); }
+        else if (a === "release") { await Tetscrow.releaseMilestone(oc, 0); await after("Released - the USDC was sent to the worker"); }
+        else if (a === "claim") { await Tetscrow.claimAfterReview(oc, 0); await after("Payment claimed"); }
+        else if (a === "timeout") { await Tetscrow.claimTimeout(oc); await after("Refund claimed"); }
+        else if (a === "cancel") { await Tetscrow.initiateMutualCancel(oc); await after("Cancel requested - the other person must confirm too"); }
+      });
+    } catch (err) { if (err) stMsg(id, Tetscrow.explainError(err), "err"); }
+  }
+
+  // ----- request extension / update deadline modal
+  function deadlineModal(m, title, cta, kind) {
+    const mo = App.modal({ narrow: true, dismissible: true, html: "<h3>" + esc(title) + "</h3>" +
+      '<input class="field" type="date" id="nd" min="' + App.todayPlus(1) + '" aria-label="New deadline">' +
+      '<p class="modal-note">New deadline (dd/mm/yyyy)</p><div class="modal-actions"><button class="btn-pill light" id="b" type="button">Go Back</button><button class="btn-pill" id="go" type="button">' + esc(cta) + "</button></div>" });
+    mo.$("#b").onclick = mo.close;
+    mo.$("#go").onclick = (ev) => App.busy(ev.target, "Confirm in wallet...", async () => {
+      const d = mo.$("#nd").value;
+      if (!d) throw new Error("Pick a new deadline");
+      const sig = await Tetscrow.signAction(kind === "ext" ? "extension-request" : "deadline-update", "milestone:" + m.id, d);
+      if (kind === "ext") await TetscrowApi.requestExtension(m.id, d, sig); else await TetscrowApi.updateDeadline(m.id, d, sig);
+      mo.close(); await after(kind === "ext" ? "Extension requested" : "Deadline updated");
+    }).catch((e) => mo.note(Tetscrow.explainError(e), "err"));
+  }
+
+  // ----- create milestone (buyer): Approve -> Create
+  function createMilestoneModal() {
+    let approved = false;
+    const mo = App.modal({ steps: ["Enter Complete Details of the Milestone."], step: 1, dismissible: true, html: "<h3>Create Milestone</h3>" +
+      '<textarea class="field" id="d" maxlength="5000" placeholder="Enter Description" aria-label="Milestone description"></textarea>' +
+      '<input class="field" id="dl" type="date" min="' + App.todayPlus(1) + '" aria-label="Set deadline">' +
+      '<input class="field" id="am" type="number" min="0" step="0.000001" placeholder="Enter Amount" aria-label="Amount in USDC">' +
+      '<p class="modal-note"></p><div class="modal-actions"><button class="btn-pill light" id="b" type="button">Go Back</button><button class="btn-pill" id="go" type="button">Approve</button></div>' });
+    mo.$("#b").onclick = mo.close;
+    mo.$("#go").onclick = (ev) => App.busy(ev.target, approved ? "Confirm in wallet..." : "Approving...", async () => {
+      const desc = mo.$("#d").value.trim(), dl = mo.$("#dl").value, amount = mo.$("#am").value.trim();
+      if (!desc) throw new Error("Describe the milestone");
+      if (!dl || dl < App.todayPlus(1)) throw new Error("Pick a deadline in the future");
+      let raw; try { raw = Tetscrow.parseUsdc(amount); } catch { throw new Error("Enter a valid amount (up to 6 decimals)"); }
+      if (raw <= 0n) throw new Error("Enter an amount greater than 0");
+      if (!approved) { await Tetscrow.ensureUsdcApproval(raw); approved = true; ev.target.textContent = "Create"; mo.note("Approved. Press Create to lock the funds.", "ok"); return; }
+      const deadlineTs = Math.floor(new Date(dl + "T23:59:59").getTime() / 1000) + GRACE_DAYS * 86400;
+      const { escrowId, txHash } = await Tetscrow.createEscrow({ payee: job.receiver_address, milestones: [{ description: desc, amount }], deadlineTs });
+      await TetscrowApi.addMilestone(jobId, { description: desc, amount: Tetscrow.formatUsdcExact(raw), deadline: dl, onchain_id: escrowId, tx_hash: txHash, token_address: window.TETSCROW_CONFIG.USDC_ADDRESS });
+      mo.close(); await after("Milestone created and funded");
+    }).then(() => { if (approved) mo.$("#go").textContent = "Create"; }).catch((e) => mo.note(Tetscrow.explainError(e), "err"));
+  }
+
+  // ----- raise a dispute: reason -> details
+  const REASONS = [
+    ["unresponsiveness", "Unresponsiveness", "Select when the other party fails to communicate as per the agreement."],
+    ["work_quality", "Work Quality Not as Agreed", "Select when the delivered work does not meet the agreed standards or specifications."],
+    ["deadline_passed", "Deadline Passed", "Select when the deadline has already been passed but the work is not done as per the agreement."],
+  ];
+  function disputeModal(m) {
+    let reason = null, step = 1;
+    const mo = App.modal({ steps: ["Select a Reason for Dispute.", "Provide additional details."], step: 1, dismissible: true, html: "" });
+    const body = mo.el.querySelector(".modal");
+    const total = amt(m), buyer = role === "buyer";
+    function draw() {
+      if (step === 1) {
+        body.innerHTML = "<h3>Raise a Dispute</h3>" + REASONS.map((r) => '<button type="button" class="reason ' + (reason === r[0] ? "on" : "") + '" data-r="' + r[0] + '"><span><b>' + esc(r[1]) + "</b><small>" + esc(r[2]) + '</small></span><span>&rarr;</span></button>').join("") +
+          '<p class="modal-note"></p><div class="modal-actions"><button class="btn-pill light" id="b" type="button">Go Back</button><button class="btn-pill" id="go" type="button">Go Forward with Dispute</button></div>';
+        body.querySelectorAll("[data-r]").forEach((b) => (b.onclick = () => { reason = b.dataset.r; draw(); }));
+        body.querySelector("#b").onclick = mo.close;
+        body.querySelector("#go").onclick = () => { if (!reason) return mo.note("Select a reason first.", "err"); step = 2; mo.steps(2); draw(); };
+      } else {
+        body.innerHTML = "<h3>Raise a Dispute</h3>" + '<textarea class="field" id="why" maxlength="5000" placeholder="Explain the issue in detail" aria-label="Dispute details"></textarea>' +
+          '<div class="range-box"><b>Dispute Amount</b><span id="pct" style="font-size:.8rem">0 %</span><input id="rg" type="range" min="0" max="100" value="0" aria-label="Dispute amount percent"><div class="range-top"><span>0%</span><span>100%</span></div><span id="ra" style="font-size:.9rem;font-weight:600">0 USDC</span>' +
+          '<span class="muted" style="font-size:.75rem">' + (buyer ? "The share of this milestone you want refunded." : "The share of this milestone you want paid to you.") + "</span></div>" +
+          '<p class="modal-note"></p><div class="modal-actions"><button class="btn-pill light" id="b" type="button">Go Back</button><button class="btn-pill" id="go" type="button">Open Dispute</button></div>';
+        const rg = body.querySelector("#rg");
+        const claim = () => Math.floor(total * Number(rg.value) * 10000 / 100) / 10000;
+        rg.oninput = () => { body.querySelector("#pct").textContent = rg.value + " %"; body.querySelector("#ra").textContent = fmt(claim()) + " USDC"; };
+        body.querySelector("#b").onclick = () => { step = 1; mo.steps(1); draw(); };
+        body.querySelector("#go").onclick = (ev) => App.busy(ev.target, "Confirm in wallet...", async () => {
+          const why = body.querySelector("#why").value.trim();
+          if (why.length < 3) throw new Error("Explain the issue in a few words");
+          const c = Number(rg.value) === 100 ? m.amount : String(claim());
+          if (!(Number(c) > 0)) throw new Error("Move the slider to choose the dispute amount");
+          await Tetscrow.raiseDispute(m.onchain_id, 0);
+          await TetscrowApi.openDispute({ escrow_id: m.id, category: reason, reason: why, claim_amount: c });
+          mo.close(); await after("Dispute opened");
+        }).catch((e) => mo.note(Tetscrow.explainError(e), "err"));
+      }
+    }
+    draw();
+  }
+
+  // ------------------------------------------------------------ chat
+  const sigOf = (list) => list.map((x) => x.id + ":" + x.read).join(",");
+  async function loadMessages(scroll) {
+    try {
+      const list = await TetscrowApi.messages(jobId);
+      const sig = sigOf(list);
+      if (sig === lastMsgSig && !scroll) return;
+      lastMsgSig = sig; drawChat(list, scroll);
+    } catch (e) { /* observers cannot read the chat */ if (role === "observer") $("chat").innerHTML = '<div class="chat-empty">Chat is private to the buyer and worker.</div>'; }
+  }
+  function drawChat(list, scroll) {
+    const other = role === "buyer" ? job.receiver : job.sender;
+    const keep = $("chat-text") ? $("chat-text").value : "";
+    $("chat").innerHTML = '<div class="chat-head">' + App.avatarImg(other, 40) + "<span>" + esc(other.display_name) + "</span>" + ICON.menu + "</div>" +
+      '<div class="chat-list" id="chat-list">' + (list.length ? list.map(bubble).join("") : '<div class="chat-empty">' + ICON.msg + "No Messages...</div>") + "</div>" +
+      (pendingFile ? '<div class="pending-file">' + ICON.file + "<span>" + esc(pendingFile.name) + '</span><button type="button" id="rm-file" aria-label="Remove file">' + ICON.trash + "</button></div>" : "") +
+      '<div class="chat-input"><input id="chat-text" placeholder="Message..." maxlength="4000" aria-label="Message"><input type="file" id="chat-file" class="hidden"><button class="icon-btn" id="pick" type="button" aria-label="Attach file">' + ICON.file + '</button><button class="icon-btn" id="send" type="button" aria-label="Send">' + ICON.send + "</button></div>";
+    $("chat-text").value = keep;
+    const l = $("chat-list"); if (scroll) l.scrollTop = l.scrollHeight;
+    $("pick").onclick = () => $("chat-file").click();
+    $("chat-file").onchange = (e) => { const f = e.target.files[0]; if (!f) return; if (f.size > 5 * 1048576) return App.toast("Files can be at most 5 MB - zip big files first", "err"); pendingFile = f; loadMessages(true); lastMsgSig = ""; };
+    const rm = $("rm-file"); if (rm) rm.onclick = () => { pendingFile = null; lastMsgSig = ""; loadMessages(false); };
+    $("send").onclick = send; $("chat-text").onkeydown = (e) => { if (e.key === "Enter") send(); };
+    $("chat").querySelectorAll("[data-dl]").forEach((b) => (b.onclick = () => App.downloadFile(jobId, Number(b.dataset.dl)).catch((e) => App.toast(e.message, "err"))));
+  }
+  function bubble(m) {
+    const t = App.timeHM(m.created_at), ticks = m.mine ? ICON.ticks.replace("<svg", '<svg style="opacity:' + (m.read ? 1 : 0.4) + '"') : "";
+    const cls = "bubble " + (m.mine ? "mine" : "theirs");
+    if (m.file_name) return '<div class="' + cls + ' file">' + ICON.file + "<span>" + esc(m.file_name) + '</span><button type="button" data-dl="' + m.id + '" aria-label="Download ' + esc(m.file_name) + '">' + ICON.down + "</button></div>" +
+      (m.body ? '<div class="' + cls + '">' + esc(m.body) + "<time>" + esc(t) + ticks + "</time></div>" : "");
+    return '<div class="' + cls + '">' + esc(m.body) + "<time>" + esc(t) + ticks + "</time></div>";
+  }
+  async function send() {
+    const input = $("chat-text"), body = input.value.trim();
+    if (!body && !pendingFile) return;
+    const btn = $("send"); btn.disabled = true;
+    try {
+      const payload = { body: body || null };
+      if (pendingFile) { payload.file_name = pendingFile.name; payload.file_data = await App.readFileB64(pendingFile); }
+      await TetscrowApi.sendMessage(jobId, payload);
+      pendingFile = null; input.value = ""; lastMsgSig = ""; await loadMessages(true);
+    } catch (e) { App.toast(e.message, "err"); btn.disabled = false; }
+  }
+
+  // ------------------------------------------------------------ render + boot
+  function render() { renderHead(); renderDesc(); renderMilestones(); }
+  function refresh() {
+    clearInterval(pollTimer);
+    if (!App.signedIn()) { $("content").classList.add("hidden"); $("gate").classList.remove("hidden"); App.gate($("gate")); return; }
+    $("gate").classList.add("hidden"); $("gate").innerHTML = ""; $("content").classList.remove("hidden");
+    if (!jobId) { $("job-head").innerHTML = '<div class="empty" style="grid-column:1/-1">No job selected. <a href="dashboard.html" style="text-decoration:underline">Go to your dashboard</a></div>'; return; }
+    load(false);
+    pollTimer = setInterval(() => { if (document.visibilityState === "visible") loadMessages(false); }, 10000);
+  }
+  window.addEventListener("tetscrow:wallet", refresh);
+  App.header("dashboard");
+  (async () => { await Tetscrow.restoreSession(); refresh(); })();
+</script>
+</body>
+</html>

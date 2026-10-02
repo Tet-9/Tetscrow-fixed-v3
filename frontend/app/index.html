@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tetscrow | App</title>
+<link rel="stylesheet" href="../css/landing.css" />
+<link rel="stylesheet" href="../css/app-home.css" />
+</head>
+<body>
+<div class="reveal" aria-hidden="true" id="reveal"></div>
+<script>(function(){var r=document.getElementById("reveal");try{var o=sessionStorage.getItem("tetscrow_launch_origin");if(o){var p=o.split(" ");r.style.setProperty("--ox",p[0]);r.style.setProperty("--oy",p[1]);}else{r.classList.add("no-origin");}sessionStorage.removeItem("tetscrow_launch_origin");}catch(e){r.classList.add("no-origin");}})();</script>
+<div class="wrap">
+  <header class="app-top rise" style="--i:0">
+    <a class="app-logo" href="../index.html" aria-label="Back to the Tetscrow website"><span class="logo-mark" data-tetscrow3d><svg viewBox="0 0 32 32" aria-hidden="true"><polygon points="16,2 2,25 19,30" fill="currentColor"/><polygon points="16,2 19,30 30,21" fill="currentColor" opacity=".55"/></svg></span><span>Tetscrow</span></a>
+    <div class="hdr-wallet"><span class="pill-inline" id="net-chip" title="Network">Arc Testnet</span><span class="pill-inline" id="bal-chip" hidden></span><span class="pill-inline" data-wallet-pill data-pill-inline hidden></span><button class="btn-wallet" id="wallet-btn" data-wallet-btn type="button">Connect Wallet</button></div>
+  </header>
+
+  <main class="home-cols">
+    <div class="col">
+      <section class="big-black rise" style="--i:1" data-hover-host>
+        <div class="welcome"><span>Welcome to</span><b>Tetscrow</b></div>
+        <div class="sprite hawk-slot" data-frames="../assets/hero/f%03d.webp" data-count="24" aria-label="Animated Tetscrow hawk. Hover to see an escrow transfer move from client to freelancer."></div>
+        <div class="big-foot">
+          <div class="tag"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>Decentralized Escrow on Arc</div>
+          <a class="btn-white" href="dashboard.html">Open App</a>
+        </div>
+      </section>
+      <a class="pill-card about-c rise" style="--i:6" href="#" data-link="docs"><span class="ttl"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg>About us</span><small>Read Docs <span class="arrow"></span></small></a>
+    </div>
+
+    <div class="col">
+      <section class="stats-black rise" style="--i:2">
+        <h2>Transfer your funds securely and transparently</h2>
+        <div class="stat-b"><b id="s-jobs">0</b><span>Total<br>Jobs</span></div>
+        <div class="stat-b"><b id="s-funds">0 USDC</b><span>Funds<br>Transferred</span></div>
+      </section>
+      <div class="mid-row">
+        <div class="stack">
+          <a class="act-card act-send rise" style="--i:3" href="create-escrow.html">
+            <h3><svg viewBox="0 0 24 24"><rect x="3" y="6" width="12" height="12" rx="2"/><path d="M15 12h6M18 9l3 3-3 3"/></svg>Send Funds</h3>
+            <div class="go-row">Create/Initialize Offers <span class="arrow"></span></div>
+          </a>
+          <a class="act-card act-recv rise" style="--i:4" href="dashboard.html">
+            <h3><svg viewBox="0 0 24 24"><rect x="9" y="6" width="12" height="12" rx="2"/><path d="M3 12h6M6 9l-3 3 3 3"/></svg>Receive Funds</h3>
+            <div class="go-row">Request/Accept Offers <span class="arrow"></span></div>
+          </a>
+        </div>
+        <section class="white-card rise" style="--i:5">
+          <h3>Web3 is Secure and Transparent when using <b>Tetscrow.</b></h3>
+          <div id="job-list"><p class="job-empty">Connect your wallet to see your latest jobs here.</p></div>
+          <div id="withdraw-panel"></div>
+        </section>
+      </div>
+      <a class="pill-card contact-c rise" style="--i:7" href="#" data-email><span class="ttl"><svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A15 15 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>Contact us</span><small>Send us an Email <span class="arrow"></span></small></a>
+    </div>
+  </main>
+</div>
+
+<script src="../js/hawk3d.js"></script>
+<script src="../js/sprite.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.2/ethers.umd.min.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/site-config.js"></script>
+<script src="../js/site.js"></script>
+<script src="../js/wallet.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/app-shell.js"></script>
+<script>
+(function () {
+  var C = window.TETSCROW_CONFIG, T = window.TetscrowSite, W = Tetscrow;
+  var list = document.getElementById("job-list");
+  var EMPTY_OFF = '<p class="job-empty">Connect your wallet to see your latest jobs here.</p>';
+  var short = W.shortAddr, fmt = W.fmtAmount;
+  var LOGGED = function () { return !!localStorage.getItem("tetscrow_jwt"); };
+
+  function loadStats() {
+    fetch(C.API_BASE + "/stats")
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+      .then(function (s) {
+        document.getElementById("s-jobs").textContent = Number(s.agreements_created).toLocaleString();
+        document.getElementById("s-funds").innerHTML = T.esc(fmt(s.funds_released_usdc, 2)) + "<small>USDC</small>";
+      })
+      .catch(function () {
+        document.getElementById("s-jobs").textContent = "-";
+        document.getElementById("s-funds").textContent = "-";
+      });
+  }
+
+  async function loadJobs() {
+    if (!LOGGED()) { list.innerHTML = EMPTY_OFF; return; }
+    try {
+      var jobs = await TetscrowApi.myJobs("newest");
+      if (!jobs.length) { list.innerHTML = '<p class="job-empty">No jobs yet. Use Send Funds to create your first one.</p>'; return; }
+      list.innerHTML = jobs.slice(0, 2).map(function (j) {
+        return '<div class="job"><div class="job-row"><div><b>' + T.esc(j.title) + '</b></div>' +
+          '<div><small>Amount in Escrow</small><b>' + T.esc(fmt(j.totals.amount)) + ' USDC</b></div></div>' +
+          '<div class="job-row"><span class="route"><span class="addr-chip">' + T.esc(short(j.sender_address)) + '</span><span aria-hidden="true">&rarr;</span><span class="addr-chip">' + T.esc(short(j.receiver_address)) + '</span></span>' +
+          '<a class="btn-open" href="escrow-detail.html?id=' + Number(j.id) + '">Open Job</a></div></div>';
+      }).join("");
+    } catch (e) {
+      list.innerHTML = e.status === 401 ? EMPTY_OFF : '<p class="job-empty">' + T.esc(e.message) + '</p>';
+    }
+  }
+
+  var wdDraw = null;
+  async function showWithdraw() {
+    var el = document.getElementById("withdraw-panel");
+    if (wdDraw) return wdDraw();
+    wdDraw = await W.mountWithdrawPanel(el, { onConnect: refresh });
+  }
+  function clearWithdraw() { wdDraw = null; document.getElementById("withdraw-panel").innerHTML = ""; }
+
+  function refresh() {
+    loadJobs();
+    if (W.getAddress()) showWithdraw(); else clearWithdraw();
+  }
+
+  window.addEventListener("tetscrow:wallet", refresh);
+  loadStats();
+  W.restoreSession().then(function () { refresh(); App.paintBalance(); });
+})();
+</script>
+</body>
+</html>

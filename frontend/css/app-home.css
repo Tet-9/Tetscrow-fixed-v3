@@ -1,0 +1,138 @@
+body{overflow-x:hidden}
+.app-top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px 24px;padding:32px 0}
+.app-top>*{min-width:0}
+.app-nav{display:flex;gap:32px;font-size:1.15rem;font-weight:600;flex-wrap:wrap}
+.app-nav a.active{border-bottom:2px solid #000}
+.app-nav a:not(.active){color:#777}
+.hdr-wallet{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
+.pill-inline{display:inline-flex;align-items:center;gap:8px;background:#fff;border-radius:999px;padding:.6em 1.1em;font-weight:600;font-size:.95rem;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill-inline[hidden]{display:none}
+.pill-inline .dot{width:9px;height:9px;border-radius:50%;background:#22a06b}
+.app-logo{display:flex;align-items:center;gap:12px;font-size:clamp(1.6rem,3vw,2.3rem);font-weight:600;letter-spacing:-.03em;white-space:nowrap}
+.app-logo .logo-mark{width:52px;height:52px}
+.btn-wallet{background:#333;color:#fff;padding:.9em 1.6em;border-radius:14px;font-weight:600;font-size:1.05rem;white-space:nowrap;transition:transform .15s,background .15s}
+.btn-wallet:hover{transform:translateY(-2px)}
+.btn-wallet.is-connected{background:#fff;color:#000;box-shadow:inset 0 0 0 1.5px #000}
+.btn-wallet:disabled{opacity:.55;cursor:wait}
+.btn-white{background:#fff;color:#000;border-radius:14px;padding:.9em 1.6em;font-weight:600;font-size:1.05rem;transition:transform .15s}
+.btn-white:hover{transform:translateY(-2px)}
+.home-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.06fr);gap:38px;padding-bottom:64px}
+.col{display:flex;flex-direction:column;gap:38px;min-width:0}
+.big-black{flex:1;background:#000;color:#fff;border-radius:44px;padding:48px 52px;display:flex;flex-direction:column;justify-content:space-between;min-height:720px}
+.welcome{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px 20px}
+.welcome span{font-size:clamp(1.4rem,2.2vw,2.4rem)}
+.welcome b{font-size:clamp(2.6rem,5.2vw,5rem);letter-spacing:-.04em;font-weight:500;line-height:1}
+.big-black .hawk-slot{flex:1;min-height:400px;margin:8px 0}
+.big-foot{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px 24px}
+.tag{display:flex;align-items:center;gap:12px;font-size:clamp(1.1rem,1.6vw,1.5rem);font-weight:600}
+.tag svg{flex:0 0 auto}
+.tag svg,.act-card svg{width:30px;height:30px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.stats-black{background:#000;color:#fff;border-radius:44px;padding:44px 52px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px 36px;align-items:start}
+.stats-black h2{grid-column:1/-1}
+.stats-black h2{font-size:clamp(1.6rem,2.5vw,2.5rem);letter-spacing:-.03em;font-weight:600;line-height:1.25}
+.stat-b{text-align:left;min-width:0}
+.stat-b b{display:block;font-size:clamp(1.5rem,2vw,2.2rem);font-weight:500;overflow-wrap:anywhere;line-height:1.15;font-variant-numeric:tabular-nums}
+.stat-b b small{font-size:.55em;font-weight:500;color:#ddd;margin-left:.3em;white-space:nowrap}
+.stat-b span{color:#ddd;font-size:1.15rem}
+.mid-row{flex:1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:38px}
+.stack{display:grid;grid-template-rows:1fr 1fr;gap:38px;min-width:0}
+.act-card{border-radius:44px;padding:40px;color:#fff;display:flex;flex-direction:column;justify-content:space-between;min-height:230px;transition:transform .2s}
+.act-card:hover{transform:translateY(-4px)}
+.act-card h3{font-size:clamp(1.5rem,2vw,2.2rem);font-weight:600;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.go-row{display:flex;justify-content:space-between;align-items:center;gap:8px 16px;flex-wrap:wrap;font-size:clamp(1rem,1.3vw,1.3rem);font-weight:600}
+.go-row .arrow{flex:0 0 auto}
+.act-send{background:#333}
+.act-recv{background:#7a63c9}
+.white-card{background:#fff;border-radius:44px;padding:40px;display:flex;flex-direction:column;gap:20px;min-width:0}
+.white-card h3{font-size:clamp(1.4rem,2vw,2.2rem);font-weight:600;letter-spacing:-.03em;line-height:1.2;color:#777}
+.white-card h3 b{color:#000}
+#job-list{display:flex;flex-direction:column;gap:12px}
+.job{background:#f3f3f3;border-radius:22px;padding:16px 20px;display:flex;flex-direction:column;gap:10px}
+.job-row{display:flex;justify-content:space-between;align-items:center;gap:10px 14px;flex-wrap:wrap}
+.job-row>*{min-width:0}
+.job b{overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.job .job-status{text-transform:capitalize}
+.job small{color:#777;font-size:.8rem;display:block}
+.job b{font-weight:600}
+.addr-chip{background:#fff;border-radius:12px;padding:6px 12px;font-size:.85rem;display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.route{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.btn-open{background:#000;color:#fff;border-radius:12px;padding:.6em 1.2em;font-size:.9rem;font-weight:600;white-space:nowrap}
+.job-empty{color:#777;font-size:1.1rem}
+.pill-card{border-radius:44px;padding:30px 44px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px 24px;font-size:clamp(1.4rem,2.1vw,2.3rem);font-weight:500;transition:transform .2s}
+.pill-card:hover{transform:translateY(-3px)}
+.pill-card .ttl{display:flex;align-items:center;gap:14px}
+.pill-card .ttl svg{flex:0 0 auto;width:34px;height:34px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+.pill-card small{font-size:clamp(1rem,1.2vw,1.2rem);font-weight:600;display:flex;align-items:center;gap:12px}
+.about-c{background:#cbb9ff}
+.contact-c{background:#fff}
+
+/* arrival animation after "Launch App" -- continues the wipe started on the landing page.
+   clip-path:circle(X%) sets the VISIBLE area of this black overlay, so it must start
+   large (fully covering, matching where the landing-page wipe left off) and shrink to
+   nothing to reveal the page -- not the other way around. */
+.reveal{position:fixed;top:0;left:0;right:0;bottom:0;background:#000;z-index:200;pointer-events:none;clip-path:circle(150% at var(--ox,92%) var(--oy,6%));animation:reveal .6s cubic-bezier(.6,0,.15,1) both}
+.reveal.no-origin{clip-path:circle(150% at 92% 6%);animation:reveal-fallback .6s cubic-bezier(.6,0,.15,1) both}
+@keyframes reveal{0%{clip-path:circle(150% at var(--ox,92%) var(--oy,6%))}100%{clip-path:circle(0% at var(--ox,92%) var(--oy,6%))}}
+@keyframes reveal-fallback{0%{clip-path:circle(150% at 92% 6%)}100%{clip-path:circle(0% at 92% 6%)}}
+@media (prefers-reduced-motion:reduce){.reveal{display:none}.rise{animation:none;opacity:1;transform:none}}
+@media (max-width:1240px){
+  .home-cols{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:1000px){
+  .mid-row,.stats-black{grid-template-columns:minmax(0,1fr)}
+  .big-black{min-height:560px;padding:32px}
+  .pill-card{font-size:1.7rem;padding:24px 28px}
+  .stats-black{padding:32px}
+  .white-card,.act-card{padding:28px}
+}
+@media (max-width:560px){
+  .stats-black{padding:26px 22px;border-radius:32px}
+  .big-black,.white-card,.act-card,.pill-card{border-radius:32px}
+  .big-black{padding:26px 22px}
+  .wiz-card,.wiz-steps{padding:26px 22px}
+}
+
+/* create-job wizard */
+.wiz{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:32px;max-width:1000px;margin:0 auto;padding-bottom:64px}
+@media (max-width:860px){.wiz{grid-template-columns:minmax(0,1fr)}}
+.wiz-steps{background:#000;color:#fff;border-radius:32px;padding:40px 36px;display:flex;flex-direction:column;gap:22px;align-self:start}
+.wiz-steps h3{font-weight:600;font-size:1.2rem}
+.wiz-bars{display:flex;gap:8px;margin:-4px 0 6px}
+.wiz-bars span{height:4px;flex:1;border-radius:3px;background:#444}
+.wiz-bars span.done{background:#fff}
+.wiz-step{display:flex;gap:12px;align-items:flex-start;opacity:.45;min-width:0}
+.wiz-step strong{overflow-wrap:anywhere}
+.wiz-step.active{opacity:1}
+.wiz-step .arrow-i{flex:0 0 auto;line-height:1.5}
+.wiz-card{background:#fff;border-radius:32px;padding:40px;display:flex;flex-direction:column;gap:20px;min-width:0}
+.wiz-field{min-width:0}
+.wiz-field label{display:block;font-size:.85rem;font-weight:600;color:#555;margin:0 0 6px 4px}
+.wiz-note{color:#666;font-size:.9rem;line-height:1.5;overflow-wrap:anywhere}
+.ms{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto;gap:10px;align-items:center}
+@media (max-width:560px){.ms{grid-template-columns:minmax(0,1fr) auto}.ms .ms-desc-wrap{grid-column:1/-1}}
+.wiz-field input,.wiz-field textarea,.wiz-field select{width:100%;min-width:0;border:none;background:#eceaf6;border-radius:14px;padding:16px 20px;font-size:1.05rem;font-family:inherit;color:#000}
+.wiz-field textarea{min-height:160px;resize:vertical}
+.wiz-field input::placeholder,.wiz-field textarea::placeholder{color:#8a8a92}
+.wiz-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:auto}
+.btn-black-full{width:100%;background:#000;color:#fff;border-radius:14px;padding:1em;font-weight:600;font-size:1.05rem;text-align:center}
+.btn-black-full:disabled{opacity:.4}
+.wiz-back{align-self:flex-start;color:#666;font-weight:600;padding:.5em 0}
+
+/* authorization gate */
+.gate{max-width:640px;margin:60px auto;padding:0 12px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:22px}
+.gate .hawk-slot{width:340px;max-width:80vw}
+.gate p{font-size:clamp(1.1rem,2vw,1.35rem);font-weight:600}
+.gate .btn-white{background:#000;color:#fff}
+
+/* Received-funds / withdraw panel (js/wallet.js mountWithdrawPanel) */
+.wd-box{background:#f3f3f3;border-radius:18px;padding:16px 20px;color:#111;min-width:0}
+.wd-box p{margin:8px 0;font-size:.92rem;line-height:1.5;overflow-wrap:anywhere}
+.wd-box .wd-row{display:flex;justify-content:space-between;align-items:baseline;gap:6px 12px;flex-wrap:wrap;margin:8px 0;font-size:.95rem}
+.wd-box .wd-row span{color:#555}
+.wd-box .wd-row b{font-variant-numeric:tabular-nums}
+.wd-hint{color:#666}
+.wd-err{color:#c62828}
+.wd-ok{color:#1a7f4b}
+.wd-box a{text-decoration:underline}
+.wd-box .btn{display:inline-flex;justify-content:center;margin-top:6px;background:#000;color:#fff;border:0;border-radius:999px;padding:.6em 1.2em;font-weight:600;cursor:pointer}
+.wd-box .btn:disabled{opacity:.5;cursor:not-allowed}

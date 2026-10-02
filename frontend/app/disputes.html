@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dispute — Tetscrow</title>
+<link rel="stylesheet" href="../css/landing.css" />
+<link rel="stylesheet" href="../css/app-home.css" />
+<link rel="stylesheet" href="../css/app-pages.css" />
+</head>
+<body>
+<div class="wrap page">
+  <header id="app-header"></header>
+  <main id="gate"></main>
+  <main id="content" class="hidden">
+    <section class="dp-head" id="dp-head"></section>
+    <div class="dp-grid">
+      <section class="panel chat" id="chat"></section>
+      <section class="panel" id="detail"></section>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../js/hawk3d.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.2/ethers.umd.min.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/site-config.js"></script>
+<script src="../js/site.js"></script>
+<script src="../js/wallet.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/app-shell.js"></script>
+<script>
+  const { esc, fmt, ICON } = App;
+  const id = Number(new URLSearchParams(location.search).get("id"));
+  const $ = (x) => document.getElementById(x);
+  const STATUS = { raised: "Dispute Raised", challenged: "Challenged", settled: "Settled", arbitrage: "Arbitrage", resolved: "Resolved" };
+  const BIG = { challenged: "DISPUTE CHALLENGED", settled: "DISPUTE SETTLED", arbitrage: "SUPPORT TEAM INVITED", resolved: "DISPUTE RESOLVED" };
+  let d = null, meProfile = null, msgs = [], timer = null, tick = null;
+
+  async function load() {
+    try {
+      d = await TetscrowApi.getDispute(id);
+      meProfile = await TetscrowApi.me();
+      msgs = await TetscrowApi.messages(d.job_id).catch(() => []);
+      draw();
+    } catch (err) { $("dp-head").innerHTML = '<div class="empty" style="grid-column:1/-1;color:#c62828">' + esc(err.status === 404 ? "Dispute not found." : err.message) + "</div>"; }
+  }
+  const act = (label) => async () => { App.toast(label); await load(); };
+  const ref = () => "dispute:" + d.id;
+  const done = () => d.status === "resolved";
+
+  // ------------------------------------------------------------ header
+  function drawHead() {
+    const kind = d.claim_kind === "refund" ? "Refund" : "Payment";
+    const label = (d.full_claim ? "Full " : "Partial ") + kind;
+    const right = d.status === "raised"
+      ? '<div class="stat"><small>Time for the other party to respond</small><b id="cd">' + esc(App.countdown(d.response_due)) + "</b></div>"
+      : '<div class="stat"><span class="big">' + esc(BIG[d.status] || "") + "</span></div>";
+    $("dp-head").innerHTML = '<div style="display:flex;align-items:center;gap:16px;min-width:0">' + App.avatarImg(meProfile, 90) + '<div style="min-width:0"><b style="font-size:1.15rem;display:block;overflow-wrap:anywhere">' + esc(meProfile.display_name) + "</b>" + App.addrChip(meProfile.address) + "</div></div>" +
+      '<div class="stat"><small>Assets in Dispute\'s Escrows</small><b>' + esc(fmt(d.amount)) + " USDC</b></div>" +
+      '<div class="stat"><small>' + esc(label) + "</small><b>" + esc(fmt(d.claim_amount)) + " USDC</b></div>" + right;
+  }
+
+  // ------------------------------------------------------------ chat (job chat) with the dispute action button
+  function chatAction() {
+    if (done() || d.status === "arbitrage" || d.status === "settled" || !d.my_role) return null;
+    if (!d.i_am_raiser && d.status === "raised") return ["Challenge", challenge];
+    if (!d.i_am_raiser && d.status === "challenged") return ["Settle", settle];
+    if (d.i_am_raiser && d.status === "challenged") return ["Modify", modify];
+    return null;
+  }
+  function bubble(m) {
+    const t = App.timeHM(m.created_at), ticks = m.mine ? ICON.ticks.replace("<svg", '<svg style="opacity:' + (m.read ? 1 : 0.4) + '"') : "";
+    const cls = "bubble " + (m.mine ? "mine" : "theirs");
+    if (m.file_name) return '<div class="' + cls + ' file">' + ICON.file + "<span>" + esc(m.file_name) + '</span><button type="button" data-dl="' + m.id + '" aria-label="Download ' + esc(m.file_name) + '">' + ICON.down + "</button></div>";
+    return '<div class="' + cls + '">' + esc(m.body) + "<time>" + esc(t) + ticks + "</time></div>";
+  }
+  function drawChat() {
+    const other = d.my_role === "payer" ? d.receiver : d.sender, keep = $("ct") ? $("ct").value : "", a = chatAction();
+    const canWrite = !!d.my_role;
+    $("chat").innerHTML = '<div class="chat-head">' + App.avatarImg(other, 40) + "<span>" + esc(other.display_name) + "</span></div>" +
+      '<div class="chat-list" id="cl">' + (msgs.length ? msgs.map(bubble).join("") : '<div class="chat-empty">' + ICON.msg + "No messages...</div>") + "</div>" +
+      (a ? '<button class="chat-action" id="ca" type="button">' + a[0] + "</button>" : "") +
+      (canWrite ? '<div class="chat-input"><input id="ct" placeholder="Message..." maxlength="4000" aria-label="Message"><button class="icon-btn" id="sd" type="button" aria-label="Send">' + ICON.send + "</button></div>" : "");
+    if ($("ct")) $("ct").value = keep;
+    const l = $("cl"); l.scrollTop = l.scrollHeight;
+    if (a) $("ca").onclick = (ev) => App.busy(ev.target, "Confirm in wallet...", a[1]).catch(() => {});
+    if (canWrite) { $("sd").onclick = send; $("ct").onkeydown = (e) => { if (e.key === "Enter") send(); }; }
+    $("chat").querySelectorAll("[data-dl]").forEach((b) => (b.onclick = () => App.downloadFile(d.job_id, Number(b.dataset.dl)).catch((e) => App.toast(e.message, "err"))));
+  }
+  async function send() {
+    const body = $("ct").value.trim(); if (!body) return;
+    try { await TetscrowApi.sendMessage(d.job_id, { body }); $("ct").value = ""; msgs = await TetscrowApi.messages(d.job_id); drawChat(); } catch (e) { App.toast(e.message, "err"); }
+  }
+
+  // ------------------------------------------------------------ actions (signed, gasless)
+  async function challenge() { const sig = await Tetscrow.signAction("dispute-challenge", ref(), ""); await TetscrowApi.challenge(d.id, sig); await act("Dispute challenged")(); }
+  async function settle() { const sig = await Tetscrow.signAction("dispute-settle", ref(), App.fix6(d.claim_amount)); await TetscrowApi.settleDispute(d.id, sig); await act("Settled - the arbitrator will release the funds")(); }
+  async function invite() { const sig = await Tetscrow.signAction("dispute-arbitrage", ref(), ""); await TetscrowApi.inviteSupport(d.id, sig); await act("Support team invited")(); }
+  function modify() {
+    const total = Number(d.amount), cur = Number(d.claim_amount), pct0 = total ? Math.round((cur / total) * 100) : 0;
+    const mo = App.modal({ narrow: true, dismissible: true, html: "<h3>Modify Dispute</h3>" +
+      '<div class="big-amt"><small>Current Amount</small><b>' + esc(fmt(d.claim_amount)) + " USDC</b><small>" + pct0 + '%</small></div>' +
+      '<div class="range-box"><b>Dispute Amount</b><span id="p" style="font-size:.8rem">' + pct0 + ' %</span><input id="rg" type="range" min="0" max="100" value="' + pct0 + '" aria-label="Dispute amount percent"><div class="range-top"><span>0%</span><span>100%</span></div><span id="a" style="font-size:.9rem;font-weight:600">' + esc(fmt(cur)) + ' USDC</span></div>' +
+      '<p class="modal-note"></p><div class="modal-actions"><button class="btn-pill light" id="b" type="button">Go Back</button><button class="btn-pill" id="go" type="button">Save and Update</button></div>' });
+    const rg = mo.$("#rg"), claim = () => (Number(rg.value) === 100 ? d.amount : String(Math.floor(total * Number(rg.value) * 100) / 10000));
+    rg.oninput = () => { mo.$("#p").textContent = rg.value + " %"; mo.$("#a").textContent = fmt(claim()) + " USDC"; };
+    mo.$("#b").onclick = mo.close;
+    mo.$("#go").onclick = (ev) => App.busy(ev.target, "Confirm in wallet...", async () => {
+      const c = claim(); if (!(Number(c) > 0)) throw new Error("Choose an amount above 0");
+      const sig = await Tetscrow.signAction("dispute-modify", ref(), App.fix6(c));
+      await TetscrowApi.modifyDispute(d.id, c, sig); mo.close(); await act("Dispute amount updated")();
+    }).catch((e) => mo.note(Tetscrow.explainError(e), "err"));
+  }
+
+  // ------------------------------------------------------------ details
+  function drawDetail() {
+    const files = msgs.filter((m) => m.file_name);
+    const unlocked = Date.now() >= new Date(d.support_available_at).getTime();
+    const days = Math.max(1, Math.ceil((new Date(d.support_available_at).getTime() - Date.now()) / 864e5));
+    const canInvite = d.my_role && (d.status === "raised" || d.status === "challenged");
+    const inviteLabel = unlocked ? "Invite Support Team" : "Invite Support Team in " + days + " day(s)";
+    const pendingPayout = d.status === "settled" && d.milestone_status === "disputed";
+    $("detail").innerHTML =
+      '<div class="kvr"><span>Dispute ID</span><b class="mono">' + esc(d.code) + "</b></div>" +
+      '<div class="kvr"><span>Reason</span><b>' + esc(d.category_label) + "</b></div>" +
+      '<div class="kvr"><span>Status</span><b><span style="display:inline-flex;align-items:center;gap:6px"><i style="width:12px;height:12px;border-radius:50%;background:#000;display:inline-block"></i>' + esc(STATUS[d.status] || d.status) + "</span></b></div>" +
+      '<div class="dbox"><h5>Rules</h5><ul>' +
+        "<li>Either person can dispute a milestone. Its funds stay frozen on-chain until the dispute ends.</li>" +
+        "<li>The person who opens the dispute chooses the amount they are asking for. The other person can challenge it.</li>" +
+        "<li>After a challenge, you can agree on an amount: the person who raised the dispute can modify it, and the other person can settle.</li>" +
+        "<li>If you cannot agree, either person can invite the support team " + "7 days after the dispute was raised. The arbitrator decides.</li>" +
+        "<li>Settlements and decisions are paid out on-chain by the arbitrator.</li></ul></div>" +
+      '<div class="dbox"><h5>' + esc(d.category_label) + "</h5><p>" + esc(d.reason) + "</p></div>" +
+      '<div class="dbox"><h5>Files</h5>' + (files.length ? files.map((f) => '<div class="file-row"><span class="fi">' + ICON.file + '</span><div><b>' + esc(f.file_name) + "</b><small>" + esc(App.fileSize(f.file_size || 0)) + "</small></div><small>" + esc(App.timeHM(f.created_at)) + '</small><button type="button" data-dl="' + f.id + '" aria-label="Download ' + esc(f.file_name) + '">' + ICON.down + "</button></div>").join("") : '<p>No files were shared in the chat.</p>') + "</div>" +
+      (pendingPayout ? '<div class="dbox"><h5>Agreed split</h5><p>Buyer ' + esc(fmt(d.payer_share)) + " USDC / worker " + esc(fmt(d.payee_share)) + " USDC. Waiting for the arbitrator to release the funds on-chain.</p></div>" : "") +
+      (done() ? '<div class="dbox"><h5>Outcome</h5><p>' + esc(d.resolution || "") + "</p></div>" : "") +
+      arbiterBox() +
+      '<div class="dp-actions"><a class="btn-pill light" href="escrow-detail.html?id=' + d.job_id + '">Go Back</a>' +
+      (canInvite ? '<button class="btn-pill" id="inv" type="button"' + (unlocked ? "" : " disabled") + ">" + esc(inviteLabel) + "</button>" : "") + "</div>";
+    $("detail").querySelectorAll("[data-dl]").forEach((b) => (b.onclick = () => App.downloadFile(d.job_id, Number(b.dataset.dl)).catch((e) => App.toast(e.message, "err"))));
+    const inv = $("inv"); if (inv && unlocked) inv.onclick = (ev) => App.busy(ev.target, "Confirm in wallet...", invite).catch(() => {});
+    const rel = $("arb-go"); if (rel) rel.onclick = (ev) => App.busy(ev.target, "Confirm in wallet...", release).catch(() => {});
+  }
+
+  function arbiterBox() {
+    if (!d.i_am_arbiter || done()) return "";
+    return '<div class="arb-box"><h5 style="margin-bottom:8px">Arbitrator: release the funds</h5><p class="muted" style="font-size:.85rem;margin-bottom:10px">Split ' + esc(fmt(d.amount)) + " USDC between the buyer and the worker. The two shares must add up to the milestone amount.</p>" +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><input class="field" id="ps" type="number" step="0.000001" min="0" value="' + esc(d.payer_share) + '" aria-label="Buyer share"><input class="field" id="ws" type="number" step="0.000001" min="0" value="' + esc(d.payee_share) + '" aria-label="Worker share"></div>' +
+      '<button class="btn-pill" id="arb-go" type="button" style="margin-top:12px;width:100%">Release funds on-chain</button></div>';
+  }
+  async function release() {
+    const ps = $("ps").value.trim(), ws = $("ws").value.trim();
+    if (Tetscrow.parseUsdc(ps) + Tetscrow.parseUsdc(ws) !== Tetscrow.parseUsdc(d.amount)) throw new Error("The two shares must add up to " + fmt(d.amount) + " USDC");
+    await Tetscrow.resolveDispute(d.onchain_id, 0, ps, ws);
+    await TetscrowApi.resolveDispute(d.id, { payer_share: ps, payee_share: ws });
+    await act("Funds released")();
+  }
+
+  function draw() { drawHead(); drawChat(); drawDetail(); clearInterval(tick); tick = setInterval(() => { const c = $("cd"); if (c) c.textContent = App.countdown(d.response_due); }, 30000); }
+
+  function refresh() {
+    clearInterval(timer);
+    if (!App.signedIn()) { $("content").classList.add("hidden"); $("gate").classList.remove("hidden"); App.gate($("gate")); return; }
+    $("gate").classList.add("hidden"); $("gate").innerHTML = ""; $("content").classList.remove("hidden");
+    if (!id) { location.replace("dashboard.html#disputes"); return; }
+    load(); timer = setInterval(async () => { if (document.visibilityState === "visible" && d) { try { msgs = await TetscrowApi.messages(d.job_id); drawChat(); } catch { /* ignore */ } } }, 12000);
+  }
+  window.addEventListener("tetscrow:wallet", refresh);
+  App.header("dashboard");
+  (async () => { await Tetscrow.restoreSession(); refresh(); })();
+</script>
+</body>
+</html>

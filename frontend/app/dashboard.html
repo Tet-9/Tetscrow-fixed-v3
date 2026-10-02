@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard — Tetscrow</title>
+<link rel="stylesheet" href="../css/landing.css" />
+<link rel="stylesheet" href="../css/app-home.css" />
+<link rel="stylesheet" href="../css/app-pages.css" />
+</head>
+<body>
+<div class="wrap page">
+  <header id="app-header"></header>
+  <main id="gate"></main>
+
+  <main id="content" class="hidden">
+    <section class="profile-card" id="profile-card"></section>
+
+    <div class="toolbar">
+      <label class="sort"><span class="sr" style="position:absolute;left:-9999px">Sort by</span>
+        <select id="sort" aria-label="Sort by">
+          <option value="newest">Sort By: Newest</option>
+          <option value="oldest">Sort By: Oldest</option>
+          <option value="amount">Sort By: Amount</option>
+        </select>
+      </label>
+      <div class="tabs-row">
+        <div class="tabs" role="tablist">
+          <button id="tab-jobs" class="on" type="button" role="tab">My Jobs</button>
+          <button id="tab-disputes" type="button" role="tab">My Disputes</button>
+        </div>
+        <a class="btn-pill" href="create-escrow.html">Create a Job</a>
+      </div>
+    </div>
+
+    <h2 class="section-title" id="list-title">Your Jobs</h2>
+    <div id="list"></div>
+    <div id="withdraw-panel" style="max-width:520px;margin-top:34px"></div>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../js/hawk3d.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.2/ethers.umd.min.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/site-config.js"></script>
+<script src="../js/site.js"></script>
+<script src="../js/wallet.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/app-shell.js"></script>
+<script>
+  const { esc, short, fmt } = App;
+  const gate = document.getElementById("gate"), content = document.getElementById("content"), listEl = document.getElementById("list");
+  let tab = location.hash === "#disputes" ? "disputes" : "jobs";
+  let me = null, wdDraw = null;
+
+  // ---------- profile ----------
+  function renderProfile(stats) {
+    document.getElementById("profile-card").innerHTML =
+      '<div class="profile-id">' + App.avatarImg(me, 96) +
+      '<div><div class="profile-name">' + esc(me.display_name) + '</div><div class="profile-meta">' + App.addrChip(me.address) +
+      '<button class="btn-pill sm" id="edit-btn" type="button">&#9998; edit</button></div></div></div>' +
+      '<div class="profile-spacer"></div>' +
+      '<div class="pstats"><div class="pstat"><small>Total Paid</small><b>' + esc(fmt(stats.total_paid)) + ' $</b></div>' +
+      '<div class="pstat"><small>Assets in Escrows</small><b>' + esc(fmt(stats.assets_in_escrows)) + ' $</b></div>' +
+      '<div class="pstat"><small>Total Jobs</small><b>' + esc(stats.total_jobs) + '</b></div>' +
+      '<div class="pstat"><small>Total Disputes</small><b>' + esc(stats.total_disputes) + '</b></div></div>';
+    document.getElementById("edit-btn").onclick = editProfile;
+  }
+
+  // shrink the picked image so it stays small in the database
+  function shrink(file, max) {
+    return new Promise((resolve, reject) => {
+      const img = new Image(), url = URL.createObjectURL(file);
+      img.onload = () => {
+        const k = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url); resolve(c.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = () => reject(new Error("That file is not an image"));
+      img.src = url;
+    });
+  }
+
+  function editProfile() {
+    let avatar;  // undefined = unchanged
+    const m = App.modal({
+      narrow: true, dismissible: true,
+      html: '<h3>Edit Profile</h3>' +
+        '<div style="position:relative;width:110px;height:110px;margin:4px auto" id="av-wrap">' + App.avatarImg(me, 110) +
+        '<button type="button" id="av-pick" aria-label="Change profile picture" style="position:absolute;right:0;bottom:0;width:34px;height:34px;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.25);display:grid;place-items:center">&#128247;</button></div>' +
+        '<input type="file" id="av-file" accept="image/*" class="hidden">' +
+        '<input class="field" id="name-in" maxlength="15" value="' + esc(me.display_name) + '" aria-label="Display name">' +
+        '<p class="modal-note">Up to 15 characters.</p>' +
+        '<div class="modal-actions"><button class="btn-pill light" id="m-back" type="button">Go Back</button><button class="btn-pill" id="m-save" type="button">Save and Update</button></div>',
+    });
+    m.$("#av-pick").onclick = () => m.$("#av-file").click();
+    m.$("#av-file").onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      try { avatar = await shrink(f, 256); m.$("#av-wrap .avatar").src = avatar; } catch (err) { m.note(err.message, "err"); }
+    };
+    m.$("#m-back").onclick = m.close;
+    m.$("#m-save").onclick = (ev) => App.busy(ev.target, "Saving...", async () => {
+      const body = { display_name: m.$("#name-in").value.trim() };
+      if (avatar !== undefined) body.avatar = avatar;
+      me = await TetscrowApi.updateMe(body);
+      m.close(); App.toast("Profile updated"); renderProfile(await TetscrowApi.myStats());
+    }).catch((err) => m.note(Tetscrow.explainError(err), "err"));
+  }
+
+  // ---------- lists ----------
+  function jobCard(j) {
+    return '<article class="jcard"><div class="jcard-top"><span class="usdc-ico" aria-hidden="true">$</span><b>' + esc(j.title) + '</b><small>' + esc((j.description || "").replace(/\s+/g, " ").slice(0, 60) || "No description") + '</small></div>' +
+      '<div class="jcard-mid"><small>Amount in Escrow</small><b>' + esc(fmt(j.totals.amount)) + '</b><span>USDC</span></div>' +
+      '<div class="jcard-route">' + App.addrChip(j.sender_address) + '<span aria-hidden="true">&rarr;</span>' + App.addrChip(j.receiver_address) + '</div>' +
+      '<a class="btn-pill" href="escrow-detail.html?id=' + Number(j.id) + '">Open Job</a></article>';
+  }
+  function disputeCard(d) {
+    const cls = d.status === "resolved" || d.status === "settled" ? "ok" : d.status === "arbitrage" ? "warn" : "bad";
+    return '<article class="dcard"><div><b>' + esc(d.job_title) + '</b><small>Milestone ' + esc(d.milestone_no) + ' &middot; ' + esc(d.category_label) + '</small></div>' +
+      '<div><small>Amount</small><b>' + esc(fmt(d.amount)) + ' USDC</b></div><span class="state-pill ' + cls + '">' + esc(d.status) + '</span>' +
+      '<a class="btn-pill sm" href="disputes.html?id=' + Number(d.id) + '">Go to Dispute</a></article>';
+  }
+
+  async function loadList() {
+    const jobs = tab === "jobs";
+    document.getElementById("list-title").textContent = jobs ? "Your Jobs" : "Your Disputes";
+    document.getElementById("tab-jobs").classList.toggle("on", jobs);
+    document.getElementById("tab-disputes").classList.toggle("on", !jobs);
+    document.getElementById("sort").parentElement.style.visibility = jobs ? "visible" : "hidden";
+    listEl.innerHTML = '<div class="empty muted">Loading...</div>';
+    try {
+      if (jobs) {
+        const rows = await TetscrowApi.myJobs(document.getElementById("sort").value);
+        listEl.innerHTML = rows.length
+          ? '<div class="cards-grid">' + rows.map(jobCard).join("") + "</div>"
+          : '<div class="panel empty">No jobs yet.<br>Use Create a Job to start your first one.</div>';
+      } else {
+        const rows = await TetscrowApi.myDisputes();
+        listEl.innerHTML = rows.length ? rows.map(disputeCard).join("") : '<div class="panel empty">No disputes found ...</div>';
+      }
+    } catch (err) { listEl.innerHTML = '<div class="panel empty" style="color:#c62828">' + esc(err.message) + "</div>"; }
+  }
+
+  async function refresh() {
+    if (!App.signedIn()) { wdDraw = null; content.classList.add("hidden"); gate.classList.remove("hidden"); App.gate(gate); return; }
+    gate.classList.add("hidden"); gate.innerHTML = ""; content.classList.remove("hidden");
+    try {
+      me = await TetscrowApi.me();
+      renderProfile(await TetscrowApi.myStats());
+    } catch (err) { App.toast(err.message, "err"); }
+    if (wdDraw) wdDraw(); else wdDraw = await Tetscrow.mountWithdrawPanel(document.getElementById("withdraw-panel"), { onChange: refresh });
+    loadList();
+  }
+
+  document.getElementById("tab-jobs").onclick = () => { tab = "jobs"; history.replaceState(null, "", "#jobs"); loadList(); };
+  document.getElementById("tab-disputes").onclick = () => { tab = "disputes"; history.replaceState(null, "", "#disputes"); loadList(); };
+  document.getElementById("sort").onchange = loadList;
+  window.addEventListener("tetscrow:wallet", refresh);
+  App.header("dashboard");
+  (async () => { await Tetscrow.restoreSession(); refresh(); })();
+</script>
+</body>
+</html>
